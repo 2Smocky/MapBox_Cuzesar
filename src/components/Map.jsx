@@ -20,12 +20,42 @@ const POIs = [
     lng: -74.0633, lat: 4.7355, // Ajustado drásticamente hacia el Este y Sur para centrarse entre los dos edificios del modelo
     color: '#dc2626', icon: '',
     image: '/Logo-Luar.webp',
+    actionUrl: 'https://qa.cusezar.antpk.co/recorridos/Apto-34mts/tour.html',
+    actionText: 'Vista Interna',
     description: 'Nuestro más reciente proyecto de vivienda integral en La Colina. Cuenta con una arquitectura moderna y funcional, ideal para todos los momentos de la vida.',
     rating: '5.0', time: '0 min', audience: 'Familiar / Inversionistas', schedule: '09:00 AM - 05:00 PM'
   },
 
   // VÍAS PRINCIPALES
   { name: 'Calle 152 / Carrera 58', type: 'transporte', lng: -74.0610, lat: 4.7350, color: '#4b5563', icon: ICONS.road, description: 'Vías locales e internas de La Colina que permiten un flujo vehicular tranquilo y residencial.', rating: '4.5', time: '1 min', audience: 'General', schedule: '24 Horas' },
+
+  // TRANSPORTE PÚBLICO (SITP)
+  { 
+    name: 'Paradero SITP (Calle 153 - Kr 58)', 
+    type: 'transporte', 
+    lng: -74.0628, 
+    lat: 4.7360, 
+    color: '#0284c7', 
+    icon: ICONS.bus, 
+    description: 'Rutas: <b>T62</b> (Metrópolis), <b>B909</b> (Mazurén), <b>C144</b> (Bilbao). Conexión directa hacia el oriente y occidente de la ciudad.', 
+    rating: '4.5', 
+    time: '2 min caminando', 
+    audience: 'General', 
+    schedule: '04:00 AM - 11:00 PM' 
+  },
+  { 
+    name: 'Paradero SITP Av. Las Villas (Kr 58 - Cl 152)', 
+    type: 'transporte', 
+    lng: -74.0615, 
+    lat: 4.7340, 
+    color: '#0284c7', 
+    icon: ICONS.bus, 
+    description: 'Rutas: <b>E61</b> (Casablanca/Porciúncula), <b>T53</b> (Estación Alcalá), <b>19-9</b> (Alimentador AutoNorte).', 
+    rating: '4.2', 
+    time: '4 min caminando', 
+    audience: 'General', 
+    schedule: '04:00 AM - 11:00 PM' 
+  },
 
   // CENTROS COMERCIALES
   { name: 'Parque La Colina', type: 'compras', lng: -74.0620, lat: 4.7310, color: '#8b5cf6', icon: ICONS.bag, description: 'El centro comercial más moderno y exclusivo del sector, con cines, restaurantes y tiendas premium.', rating: '4.8', time: '8 min caminando', audience: 'Familiar', schedule: '10:00 AM - 09:00 PM' },
@@ -112,7 +142,8 @@ const Map = () => {
     targetZoom: 16.2,
     luarPopupOpened: false,
     poiIndex: 1,
-    isPaused: false
+    isPaused: false,
+    isWaiting: false
   });
 
   const stopTour = () => {
@@ -126,7 +157,7 @@ const Map = () => {
       animationRef.current = null;
     }
     if (tourIntervalRef.current) {
-      clearInterval(tourIntervalRef.current);
+      clearTimeout(tourIntervalRef.current);
       tourIntervalRef.current = null;
     }
   };
@@ -141,25 +172,49 @@ const Map = () => {
       state.phase = 5;
     }
 
-    // Si entramos o reanudamos en fase 5, asegurar que el intervalo de popups esté corriendo
+    // Si entramos o reanudamos en fase 5, asegurar que la lógica de popups esté corriendo
     if (state.phase === 5 && !tourIntervalRef.current) {
+      // Usamos un timeout recursivo en vez de setInterval para controlar mejor los tiempos y pausas
       const showNextPopup = () => {
         if (!isTouringRef.current) return;
-        let nextPoi = POIs[state.poiIndex];
-        if (nextPoi.name.includes('Luar')) {
-          state.poiIndex = (state.poiIndex + 1) % POIs.length;
-          nextPoi = POIs[state.poiIndex];
-        }
-        Object.values(markersRef.current).forEach(m => {
-          if (m && m.getPopup() && m.getPopup().isOpen()) m.getPopup().remove();
-        });
-        const marker = markersRef.current[nextPoi.name];
-        if (marker) marker.getPopup().addTo(map.current);
+        
+        // Primero rota 2 segundos sin popup para hacer transición
+        state.isWaiting = false;
+        
+        tourIntervalRef.current = setTimeout(() => {
+          if (!isTouringRef.current) return;
+          
+          let nextPoi = POIs[state.poiIndex];
+          if (nextPoi.name.includes('Luar')) {
+            state.poiIndex = (state.poiIndex + 1) % POIs.length;
+            nextPoi = POIs[state.poiIndex];
+          }
+          
+          Object.values(markersRef.current).forEach(m => {
+            if (m && m.getPopup() && m.getPopup().isOpen()) m.getPopup().remove();
+          });
+          
+          const marker = markersRef.current[nextPoi.name];
+          if (marker) marker.getPopup().addTo(map.current);
 
-        state.poiIndex = (state.poiIndex + 1) % POIs.length;
+          state.poiIndex = (state.poiIndex + 1) % POIs.length;
+          
+          // Detiene la rotación de la cámara para que el usuario pueda leer sin marearse
+          state.isWaiting = true;
+          
+          // Mantiene el popup abierto por 4 segundos, luego lo cierra y repite
+          tourIntervalRef.current = setTimeout(() => {
+            if (!isTouringRef.current) return;
+            if (marker && marker.getPopup().isOpen()) marker.getPopup().remove();
+            showNextPopup(); // Llamada recursiva
+          }, 4000);
+          
+        }, 2000);
       };
+      
       showNextPopup();
-      tourIntervalRef.current = setInterval(showNextPopup, 4500);
+      // Marcamos tourIntervalRef con un valor inicial para no volver a entrar, aunque se sobreescribe con los setTimeouts
+      tourIntervalRef.current = setTimeout(() => {}, 0);
     }
 
     const rotateCamera = () => {
@@ -200,7 +255,9 @@ const Map = () => {
         map.current.jumpTo({ bearing: state.currentBearing % 360, zoom: state.currentZoom });
       }
       else if (state.phase === 5) {
-        state.currentBearing += rotSpeed;
+        if (!state.isWaiting) {
+          state.currentBearing += rotSpeed;
+        }
         map.current.jumpTo({ bearing: state.currentBearing % 360, zoom: state.currentZoom });
       }
 
@@ -229,6 +286,7 @@ const Map = () => {
       state.luarPopupOpened = false;
       state.poiIndex = 1;
       state.isPaused = false;
+      state.isWaiting = false;
 
       map.current.flyTo({
         center: [-74.0630, 4.73540],
@@ -424,6 +482,14 @@ const Map = () => {
             ${poi.audience ? `<div style="grid-column: span 2;"><strong style="color: #9ca3af; font-size: 10px; text-transform: uppercase;">Público</strong><br/>${poi.audience}</div>` : ''}
           </div>
         `;
+        const actionHtml = poi.actionUrl ? `
+          <div style="margin-top: 14px;">
+            <a href="${poi.actionUrl}" target="_blank" rel="noopener noreferrer" style="display: flex; justify-content: center; align-items: center; gap: 6px; width: 100%; text-align: center; background-color: ${poi.color}; color: white; padding: 10px 0; border-radius: 8px; font-weight: bold; text-decoration: none; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); transition: all 0.2s ease;">
+              <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+              ${poi.actionText || 'Ver más'}
+            </a>
+          </div>
+        ` : '';
         const popupContent = `
           <div style="width: 280px; font-family: 'Inter', system-ui, sans-serif;">
             ${imageHtml}
@@ -432,6 +498,7 @@ const Map = () => {
               ${ratingHtml}
               <p style="margin-top: 8px; font-size: 13px; line-height: 1.5; color: #6b7280; padding-bottom: 8px; border-bottom: 1px solid #e5e7eb;">${poi.description || ''}</p>
               ${gridHtml}
+              ${actionHtml}
             </div>
           </div>
         `;
@@ -580,7 +647,7 @@ const Map = () => {
           </div>
 
           <div className="p-3 border-b border-gray-200 flex flex-wrap gap-2 bg-gray-50">
-            {['todos', 'compras', 'parques', 'colegios', 'mascotas'].map(f => (
+            {['todos', 'compras', 'parques', 'colegios', 'mascotas', 'transporte'].map(f => (
               <button
                 key={f}
                 onClick={() => setActiveFilter(f)}
